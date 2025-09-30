@@ -70,10 +70,44 @@
         msgEl.appendChild(div);
       }
 
+      // Global variable to store callsigns data
+      let callsignsData = {};
+
+      async function loadCallsignsData(){
+        try {
+          const response = await fetch('https://data.unitedstatesaviation.us/callsigns.dat', {cache: 'no-store'});
+          if (!response.ok) return {};
+          const text = await response.text();
+          const lines = text.split('\n');
+          const data = {};
+          for (const line of lines) {
+            if (!line.trim() || line.startsWith('CALLSIGN|')) continue;
+            const parts = line.split('|');
+            if (parts.length >= 3) {
+              const callsign = parts[0].trim();
+              const airport = parts[1].trim();
+              const fir = parts[2].trim();
+              const frequency = parts.length >= 4 ? parts[3].trim() : '';
+              const radioName = parts.length >= 5 ? parts[4].trim() : '';
+              data[callsign] = { airport, fir, frequency, radioName };
+            }
+          }
+          return data;
+        } catch (e) {
+          console.warn('Failed to load callsigns data:', e);
+          return {};
+        }
+      }
+
       async function load(){
         refreshBtn.disabled = true;
         showMessage('Loading…', 'loading');
         listEl.innerHTML = '';
+        
+        // Load callsigns data in parallel
+        if (Object.keys(callsignsData).length === 0) {
+          callsignsData = await loadCallsignsData();
+        }
         try{
           // Fetch from USAA API
           const res = await fetch(UPSTREAM_URL, {cache: 'no-store'});
@@ -91,23 +125,48 @@
 
           // Build list of controllers for USAA
           window.__VATSIM_items = [];
-          window.__VATSIM_artccs = {}; // map callsign prefix -> {code, displayName}
+          window.__VATSIM_artccs = {}; // map FIR code -> {code, displayName}
           for(const c of controllers){
             // USAA API: { cid, callsign, status, onlineTime, lastUpdate, firstSeen }
             const callsign = c.callsign || '';
-            const radioName = c.callsign || '';
-            const facilityName = '';
-            const frequency = null;
+            
+            // Get enhanced data from callsigns.dat
+            const enhancedData = callsignsData[callsign] || {};
+            const airportCode = enhancedData.airport || '';
+            const firCode = enhancedData.fir || '';
+            const frequencyData = enhancedData.frequency || '';
+            const radioNameFromFile = enhancedData.radioName || '';
+            
+            const radioName = radioNameFromFile || callsign; // Use radio name from file, fallback to callsign
+            const facilityName = airportCode || '';
+            const frequency = frequencyData ? String(frequencyData) : null;
             const realName = '';
             const requestedRating = '';
             const isObserver = false;
-            // Use prefix before _ as artccId (e.g., HNL from HNL_GND)
-            const artccId = callsign.split('_')[0] || '';
-            window.__VATSIM_items.push({callsign, facilityName, radioName, frequency, realName, requestedRating, isObserver, artccId, vatsimData: {}});
+            
+            // Use FIR code as artccId, fallback to callsign prefix
+            const artccId = firCode || callsign.split('_')[0] || '';
+            
+            window.__VATSIM_items.push({
+              callsign, 
+              facilityName, 
+              radioName, 
+              frequency, 
+              realName, 
+              requestedRating, 
+              isObserver, 
+              artccId, 
+              airportCode,
+              firCode,
+              cid: c.cid || '',
+              onlineTime: c.onlineTime || '',
+              vatsimData: {}
+            });
+            
             if(artccId && !window.__VATSIM_artccs[artccId]){
               window.__VATSIM_artccs[artccId] = {
                 code: artccId,
-                displayName: `${artccId} ARTCC`
+                displayName: firCode ? `${firCode}` : `${artccId} ARTCC`
               };
             }
           }
@@ -253,9 +312,21 @@
                 li.className = 'item';
                 const left = document.createElement('div'); left.className = 'left';
                   const radio = document.createElement('div'); radio.className = 'radio'; radio.textContent = it.radioName || '';
-                  const facility = document.createElement('div'); facility.className = 'facility'; facility.textContent = it.facilityName || '';
+                  const facility = document.createElement('div'); facility.className = 'facility'; facility.textContent = it.airportCode || '';
+                  const firDiv = document.createElement('div'); firDiv.className = 'facility'; firDiv.textContent = it.firCode || '';
+                  const cidDiv = document.createElement('div'); cidDiv.className = 'facility'; cidDiv.textContent = it.cid || '';
                   const real = document.createElement('div'); real.className = 'realname'; real.textContent = it.realName || '';
-                   // Info feature: show vatsimData.controllerInfo string as a tooltip on an info icon
+                   // Create online time badge
+                  const onlineBadge = document.createElement('span'); onlineBadge.className = 'role-badge';
+                  if (it.onlineTime) {
+                    const onlineDate = new Date(it.onlineTime);
+                    const now = new Date();
+                    const diffMs = now - onlineDate;
+                    const diffMins = Math.floor(diffMs / 60000);
+                    const hours = Math.floor(diffMins / 60);
+                    const minutes = diffMins % 60;
+                    onlineBadge.textContent = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+                  }
                   const infoText = (it.vatsimData && typeof it.vatsimData.controllerInfo === 'string') ? it.vatsimData.controllerInfo : '';
                   if(infoText) {
                     const infoIcon = document.createElement('span');
@@ -307,16 +378,22 @@
                   // create role badge
                   const roleBadge = document.createElement('span'); roleBadge.className = 'role-badge'; roleBadge.textContent = roleAbbr || '';
                   if(roleSource) roleBadge.title = roleSource === 'override' ? 'override' : 'feed';
+                  
+                  // Add online time badge to radio name if available
+                  if(onlineBadge.textContent){
+                    radio.appendChild(onlineBadge);
+                  }
                 const right = document.createElement('div'); right.className = 'right';
                 const freq = document.createElement('div'); freq.className = 'freq';
                 if(it.frequency){
-                  const mhz = (it.frequency / 1e6).toFixed(3);
-                  freq.textContent = `${mhz} MHz`;
+                  freq.textContent = `${it.frequency} MHz`;
                 } else {
                   freq.textContent = '';
                 }
                 left.appendChild(radio);
                 if(facility.textContent) left.appendChild(facility);
+                if(firDiv.textContent) left.appendChild(firDiv);
+                if(cidDiv.textContent) left.appendChild(cidDiv);
                 if(real.textContent) left.appendChild(real);
                 right.appendChild(freq);
                 const csSmall = document.createElement('div'); csSmall.className = 'callsign-small'; csSmall.textContent = it.callsign || '';
