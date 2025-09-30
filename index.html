@@ -70,8 +70,32 @@
         msgEl.appendChild(div);
       }
 
-      // Global variable to store callsigns data
+      // Global variable to store callsigns and airports data
       let callsignsData = {};
+      let airportsData = {};
+
+      async function loadAirportsData(){
+        try {
+          const response = await fetch('https://data.unitedstatesaviation.us/airports.dat', {cache: 'no-store'});
+          if (!response.ok) return {};
+          const text = await response.text();
+          const lines = text.split('\n');
+          const data = {};
+          for (const line of lines) {
+            if (!line.trim() || line.startsWith('FACILITYCODE|')) continue;
+            const parts = line.split('|');
+            if (parts.length >= 2) {
+              const code = parts[0].trim();
+              const name = parts[1].trim();
+              data[code] = name;
+            }
+          }
+          return data;
+        } catch (e) {
+          console.warn('Failed to load airports data:', e);
+          return {};
+        }
+      }
 
       async function loadCallsignsData(){
         try {
@@ -104,9 +128,14 @@
         showMessage('Loading…', 'loading');
         listEl.innerHTML = '';
         
-        // Load callsigns data in parallel
+        // Load callsigns and airports data in parallel
         if (Object.keys(callsignsData).length === 0) {
-          callsignsData = await loadCallsignsData();
+          const [callsigns, airports] = await Promise.all([
+            loadCallsignsData(),
+            loadAirportsData()
+          ]);
+          callsignsData = callsigns;
+          airportsData = airports;
         }
         try{
           // Fetch from USAA API
@@ -312,7 +341,13 @@
                 li.className = 'item';
                 const left = document.createElement('div'); left.className = 'left';
                   const radio = document.createElement('div'); radio.className = 'radio'; radio.textContent = it.radioName || '';
-                  const facility = document.createElement('div'); facility.className = 'facility'; facility.textContent = it.airportCode || '';
+                  const facility = document.createElement('div'); facility.className = 'facility';
+                  // Format as 'Airport Name (CODE)' if airport name is available
+                  if (it.airportCode && airportsData[it.airportCode]) {
+                    facility.textContent = `${airportsData[it.airportCode]} (${it.airportCode})`;
+                  } else if (it.airportCode) {
+                    facility.textContent = it.airportCode;
+                  }
                   const firDiv = document.createElement('div'); firDiv.className = 'facility'; firDiv.textContent = it.firCode || '';
                   const cidDiv = document.createElement('div'); cidDiv.className = 'facility'; cidDiv.textContent = it.cid || '';
                   const real = document.createElement('div'); real.className = 'realname'; real.textContent = it.realName || '';
