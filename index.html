@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>VATUSA - vNAS Controllers</title>
+  <title>USAA - Controllers</title>
     <style>
       :root{font-family:system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial;margin:0}
       body{background:#0b1220;color:#e6eef8;min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:24px}
@@ -33,8 +33,8 @@
   </head>
   <body>
     <main class="card" role="main">
-      <h1>VATUSA - vNAS Controllers</h1>
-      <p class="lead">Shows VATUSA controllers connected to the vNAS Network.</p>
+  <h1>USAA - Controllers</h1>
+  <p class="lead">Shows USAA controllers connected to the USAA Network.</p>
 
       <div class="controls">
         <button id="refresh">Refresh</button>
@@ -50,12 +50,12 @@
       <div id="message" aria-live="polite"></div>
       <ul id="list" class="list" aria-live="polite"></ul>
 
-      <footer>Data source: <a href="https://live.env.vnas.vatsim.net/data-feed/controllers.json" target="_blank" rel="noreferrer noopener" style="color:#9fc3ff">controllers.json</a></footer>
+  <footer>Data source: <a href="https://usaa-backend.sebpartof2.workers.dev/controllers" target="_blank" rel="noreferrer noopener" style="color:#9fc3ff">USAA API</a></footer>
     </main>
 
     <script>
-  const UPSTREAM_URL = 'https://live.env.vnas.vatsim.net/data-feed/controllers.json';
-  const PROXY_URL = '/proxy/controllers.json'; // local proxy provided by server.js (optional)
+  const UPSTREAM_URL = 'https://usaa-backend.sebpartof2.workers.dev/controllers';
+  const PROXY_URL = null; // no local proxy needed for USAA API
       const refreshBtn = document.getElementById('refresh');
       const statusEl = document.getElementById('status');
       const listEl = document.getElementById('list');
@@ -75,87 +75,45 @@
         showMessage('Loading…', 'loading');
         listEl.innerHTML = '';
         try{
-          // Try local proxy first (if server.js is running). If it fails, fall back to upstream.
-          let res = null;
-          try{
-            res = await fetch(PROXY_URL, {cache: 'no-store'});
-            // If the Pages hosting or any middleware rewrites unknown paths to index.html
-            // you'll receive an HTML document (content-type text/html) with a 200 status.
-            // Guard against that by checking the Content-Type and treat non-JSON as a miss
-            // so we can fall back to the upstream endpoint.
-            if(res && res.ok){
-              const ct = (res.headers.get('content-type') || '').toLowerCase();
-              if(!ct.includes('application/json')){
-                console.warn('Proxy returned non-JSON response; falling back to upstream. Content-Type:', ct);
-                res = null;
-              }
-            }
-          }catch(e){
-            // probe failed — will try upstream
-            res = null;
-          }
-
-          if(!res || !res.ok){
-            // fallback to upstream
-            res = await fetch(UPSTREAM_URL, {cache: 'no-store'});
-          }
-
+          // Fetch from USAA API
+          const res = await fetch(UPSTREAM_URL, {cache: 'no-store'});
           if(!res.ok) throw new Error(`Network error: ${res.status} ${res.statusText}`);
-          // ensure we only call res.json() for JSON responses (protects against HTML index.html being returned)
           const ctFinal = (res.headers.get('content-type') || '').toLowerCase();
           if(!ctFinal.includes('application/json')){
             throw new Error(`Unexpected content-type when fetching controllers: ${ctFinal}`);
           }
           const data = await res.json();
 
-          const updated = data.updatedAt || null;
+          const updated = data.timestamp || null;
           statusEl.textContent = updated ? `Updated: ${new Date(updated).toLocaleString()}` : 'Updated: —';
 
-          const controllers = Array.isArray(data.controllers) ? data.controllers : [];
+          const controllers = Array.isArray(data.data) ? data.data : [];
 
-          // Build list of primary positions
+          // Build list of controllers for USAA
           window.__VATSIM_items = [];
-          window.__VATSIM_artccs = {}; // map artccId -> {code, displayName}
+          window.__VATSIM_artccs = {}; // map callsign prefix -> {code, displayName}
           for(const c of controllers){
-            const positions = Array.isArray(c.positions) ? c.positions : [];
-             // DEBUG: Log controllerInfo for each controller
-            if (c.controllerInfo) {
-              console.log('controllerInfo for', c.vatsimData?.callsign || c.primaryPositionId || '[unknown]', c.controllerInfo);
-            } else if (positions.length && positions[0].controllerInfo) {
-              console.log('controllerInfo (from position) for', c.vatsimData?.callsign || c.primaryPositionId || '[unknown]', positions[0].controllerInfo);
-            }
-            // primary may be flagged by isPrimary or by matching primaryPositionId
-            const primary = positions.find(p=>p.isPrimary) || positions.find(p=>p.positionId === c.primaryPositionId);
-            if(!primary) continue;
-
-            const callsign = (c.vatsimData && c.vatsimData.callsign) || primary.defaultCallsign || '';
-            // never use positionName; prefer radioName
-            const radioName = primary.radioName || '';
-            const facilityName = primary.facilityName || c.primaryFacilityId || '';
-            const frequency = typeof primary.frequency === 'number' ? primary.frequency : (primary.frequency ? Number(primary.frequency) : null);
-            const realName = (c.vatsimData && c.vatsimData.realName) || '';
-            // capture requestedRating from a few possible feed fields (different feeds use different names)
-            let requestedRatingRaw = primary.requestedRating || primary.requested_rating || primary.requestedRatingLevel || primary.requested_rating_level || primary.rating || (c.vatsimData && (c.vatsimData.requestedRating || c.vatsimData.rating)) || '';
-            const requestedRating = requestedRatingRaw != null ? String(requestedRatingRaw).trim() : '';
-            // capture isObserver flag
-            const isObserver = c.isObserver === true;
-            window.__VATSIM_items.push({callsign, facilityName, radioName, frequency, realName, requestedRating, isObserver, artccId: c.artccId, vatsimData: c.vatsimData});
-            // DEBUG: Log controllerInfo string if present
-            if (c.vatsimData && typeof c.vatsimData.controllerInfo === 'string') {
-              console.log('controllerInfo for', callsign, ':', c.vatsimData.controllerInfo);
-            }
-            // remember artcc display name by first observed facilityName
-            if(c.artccId && !window.__VATSIM_artccs[c.artccId]){
-              // try to get a friendly name from primary position or facilityName
-              window.__VATSIM_artccs[c.artccId] = {
-                code: c.artccId,
-                displayName: (primary.facilityName || `${c.artccId} ARTCC`)
+            // USAA API: { cid, callsign, status, onlineTime, lastUpdate, firstSeen }
+            const callsign = c.callsign || '';
+            const radioName = c.callsign || '';
+            const facilityName = '';
+            const frequency = null;
+            const realName = '';
+            const requestedRating = '';
+            const isObserver = false;
+            // Use prefix before _ as artccId (e.g., HNL from HNL_GND)
+            const artccId = callsign.split('_')[0] || '';
+            window.__VATSIM_items.push({callsign, facilityName, radioName, frequency, realName, requestedRating, isObserver, artccId, vatsimData: {}});
+            if(artccId && !window.__VATSIM_artccs[artccId]){
+              window.__VATSIM_artccs[artccId] = {
+                code: artccId,
+                displayName: `${artccId} ARTCC`
               };
             }
           }
 
           if(window.__VATSIM_items.length === 0){
-            showMessage('No primary positions found.', 'muted');
+            showMessage('No controllers online.', 'muted');
           } else {
             showMessage('', '');
             const artccEntries = Object.values(window.__VATSIM_artccs).sort((a,b)=>a.code.localeCompare(b.code));
