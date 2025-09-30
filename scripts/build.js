@@ -5,7 +5,7 @@ const path = require('path');
 // Keeps things intentionally simple so it works in CI and locally without extra deps.
 
 const root = path.join(__dirname, '..');
-const outDir = path.join(root, 'build');
+const outDir = path.join(root, 'out');
 const filesToCopy = [
   'index.html',
   'artccs.json',
