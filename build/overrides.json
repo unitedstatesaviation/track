@@ -1,0 +1,16 @@
+{
+  "overrides": {
+    "Observer": "OBS",
+    "Student1": "S1",
+    "Student2": "S2",
+    "Student3": "S3",
+    "Controller1": "C1",
+    "Controller2": "C2",
+    "Controller3": "C3",
+    "Instructor1": "I1",
+    "Instructor2": "I2",
+    "Instructor3": "I3",
+    "Supervisor": "SUP",
+    "Administrator": "ADM"
+  }
+}

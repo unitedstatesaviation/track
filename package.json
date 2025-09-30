@@ -1,0 +1,14 @@
+{
+  "name": "vatsim-data-static",
+  "version": "1.0.0",
+  "description": "Tiny static server to serve index.html and optionally proxy controllers.json to avoid CORS while developing.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "build": "node ./scripts/build.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "node-fetch": "^2.6.7"
+  }
+}

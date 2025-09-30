@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>VATUSA - vNAS Controllers</title>
+    <style>
+      :root{font-family:system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial;margin:0}
+      body{background:#0b1220;color:#e6eef8;min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:24px}
+      .card{background:#0f1724;border:1px solid rgba(255,255,255,0.04);border-radius:10px;padding:18px;max-width:880px;width:100%;box-shadow:0 6px 18px rgba(2,6,23,0.6)}
+      h1{margin:0 0 12px;font-size:20px}
+      p.lead{margin:0 0 16px;color:#9fb0d6}
+      .controls{display:flex;gap:8px;align-items:center;margin-bottom:12px}
+      button{background:#1f6feb;color:white;border:0;padding:8px 12px;border-radius:8px;cursor:pointer}
+      button[disabled]{opacity:0.6;cursor:default}
+      .muted{color:#99a8c6;font-size:13px}
+  ul.list{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:8px}
+  li.item{background:linear-gradient(180deg,rgba(255,255,255,0.02),transparent);padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,0.03);display:flex;align-items:center;gap:8px}
+  .left{flex:1;display:flex;flex-direction:column;gap:6px}
+  .left .radio{font-size:16px;font-weight:700;color:#fff}
+  .left .facility{font-size:13px;color:#aec6e8}
+    .left .realname{font-size:12px;color:#9fb0d6}
+  .role-badge{display:inline-block;margin-left:8px;padding:2px 6px;background:rgba(159,195,255,0.12);border-radius:6px;color:#9fc3ff;font-weight:700;font-size:11px}
+  li.item.observer{opacity:0.55;font-style:italic}
+  .right{width:140px;flex:0 0 140px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px}
+  .freq{font-size:18px;font-weight:700;color:#9fc3ff}
+  .callsign-small{font-size:12px;color:#9fb0d6}
+      .error{color:#ffb4b4;background:#3b0f0f;padding:10px;border-radius:8px}
+      .loading{color:#cde3ff}
+      footer{margin-top:12px;font-size:12px;color:#86a0cc}
+      @media (max-width:420px){.card{padding:12px}}
+    </style>
+  </head>
+  <body>
+    <main class="card" role="main">
+      <h1>VATUSA - vNAS Controllers</h1>
+      <p class="lead">Shows VATUSA controllers connected to the vNAS Network.</p>
+
+      <div class="controls">
+        <button id="refresh">Refresh</button>
+        <div id="status" class="muted">Updated: —</div>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+        <div id="artccTitle" style="margin-left:auto;font-weight:700;color:#cfe4ff"></div>
+      </div>
+
+      <div id="artccTiles" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"></div>
+
+      <div id="message" aria-live="polite"></div>
+      <ul id="list" class="list" aria-live="polite"></ul>
+
+      <footer>Data source: <a href="https://live.env.vnas.vatsim.net/data-feed/controllers.json" target="_blank" rel="noreferrer noopener" style="color:#9fc3ff">controllers.json</a></footer>
+    </main>
+
+    <script>
+  const UPSTREAM_URL = 'https://live.env.vnas.vatsim.net/data-feed/controllers.json';
+  const PROXY_URL = '/proxy/controllers.json'; // local proxy provided by server.js (optional)
+      const refreshBtn = document.getElementById('refresh');
+      const statusEl = document.getElementById('status');
+      const listEl = document.getElementById('list');
+      const msgEl = document.getElementById('message');
+
+      function showMessage(text, className){
+        msgEl.innerHTML = '';
+        if(!text) return;
+        const div = document.createElement('div');
+        div.textContent = text;
+        if(className) div.className = className;
+        msgEl.appendChild(div);
+      }
+
+      async function load(){
+        refreshBtn.disabled = true;
+        showMessage('Loading…', 'loading');
+        listEl.innerHTML = '';
+        try{
+          // Try local proxy first (if server.js is running). If it fails, fall back to upstream.
+          let res = null;
+          try{
+            res = await fetch(PROXY_URL, {cache: 'no-store'});
+            // If the Pages hosting or any middleware rewrites unknown paths to index.html
+            // you'll receive an HTML document (content-type text/html) with a 200 status.
+            // Guard against that by checking the Content-Type and treat non-JSON as a miss
+            // so we can fall back to the upstream endpoint.
+            if(res && res.ok){
+              const ct = (res.headers.get('content-type') || '').toLowerCase();
+              if(!ct.includes('application/json')){
+                console.warn('Proxy returned non-JSON response; falling back to upstream. Content-Type:', ct);
+                res = null;
+              }
+            }
+          }catch(e){
+            // probe failed — will try upstream
+            res = null;
+          }
+
+          if(!res || !res.ok){
+            // fallback to upstream
+            res = await fetch(UPSTREAM_URL, {cache: 'no-store'});
+          }
+
+          if(!res.ok) throw new Error(`Network error: ${res.status} ${res.statusText}`);
+          // ensure we only call res.json() for JSON responses (protects against HTML index.html being returned)
+          const ctFinal = (res.headers.get('content-type') || '').toLowerCase();
+          if(!ctFinal.includes('application/json')){
+            throw new Error(`Unexpected content-type when fetching controllers: ${ctFinal}`);
+          }
+          const data = await res.json();
+
+          const updated = data.updatedAt || null;
+          statusEl.textContent = updated ? `Updated: ${new Date(updated).toLocaleString()}` : 'Updated: —';
+
+          const controllers = Array.isArray(data.controllers) ? data.controllers : [];
+
+          // Build list of primary positions
+          window.__VATSIM_items = [];
+          window.__VATSIM_artccs = {}; // map artccId -> {code, displayName}
+          for(const c of controllers){
+            const positions = Array.isArray(c.positions) ? c.positions : [];
+            // primary may be flagged by isPrimary or by matching primaryPositionId
+            const primary = positions.find(p=>p.isPrimary) || positions.find(p=>p.positionId === c.primaryPositionId);
+            if(!primary) continue;
+
+            const callsign = (c.vatsimData && c.vatsimData.callsign) || primary.defaultCallsign || '';
+            // never use positionName; prefer radioName
+            const radioName = primary.radioName || '';
+            const facilityName = primary.facilityName || c.primaryFacilityId || '';
+            const frequency = typeof primary.frequency === 'number' ? primary.frequency : (primary.frequency ? Number(primary.frequency) : null);
+            const realName = (c.vatsimData && c.vatsimData.realName) || '';
+            // capture requestedRating from a few possible feed fields (different feeds use different names)
+            let requestedRatingRaw = primary.requestedRating || primary.requested_rating || primary.requestedRatingLevel || primary.requested_rating_level || primary.rating || (c.vatsimData && (c.vatsimData.requestedRating || c.vatsimData.rating)) || '';
+            const requestedRating = requestedRatingRaw != null ? String(requestedRatingRaw).trim() : '';
+            window.__VATSIM_items.push({callsign, facilityName, radioName, frequency, realName, requestedRating, artccId: c.artccId});
+            // remember artcc display name by first observed facilityName
+            if(c.artccId && !window.__VATSIM_artccs[c.artccId]){
+              // try to get a friendly name from primary position or facilityName
+              window.__VATSIM_artccs[c.artccId] = {
+                code: c.artccId,
+                displayName: (primary.facilityName || `${c.artccId} ARTCC`)
+              };
+            }
+          }
+
+          if(window.__VATSIM_items.length === 0){
+            showMessage('No primary positions found.', 'muted');
+          } else {
+            showMessage('', '');
+            const artccEntries = Object.values(window.__VATSIM_artccs).sort((a,b)=>a.code.localeCompare(b.code));
+            // try to load artccs.json (editable config)
+            let cfgList = null;
+            // Load overrides (optional) - mapping of callsign -> abbreviation
+            let overrides = {};
+            try{
+              const cfgRes = await fetch('/artccs.json');
+              if(cfgRes.ok){
+                const cfg = await cfgRes.json();
+                if(Array.isArray(cfg) && cfg.length){
+                  // preserve aliases if present (optional `aliases` array)
+                  cfgList = cfg.map(x=>({code:x.code,name:x.name, aliases: Array.isArray(x.aliases) ? x.aliases : []}));
+                }
+              }
+            }catch(e){ /* ignore and fallback */ }
+
+            try{
+              const ovRes = await fetch('/overrides.json');
+              if(ovRes.ok){
+                const ov = await ovRes.json();
+                if(ov && typeof ov.overrides === 'object'){
+                  // normalize keys to uppercase for case-insensitive lookup
+                  for(const k of Object.keys(ov.overrides)){
+                    overrides[k.toUpperCase()] = ov.overrides[k];
+                  }
+                }
+              }
+            }catch(e){ /* ignore */ }
+
+            const tilesList = cfgList || artccEntries.map(a=>({code:a.code,name:a.displayName, aliases: []}));
+            function renderArtccTiles(list){
+              const container = document.getElementById('artccTiles');
+              container.innerHTML = '';
+              // add an ALL tile
+              const allBtn = document.createElement('button');
+              allBtn.textContent = 'ALL';
+              allBtn.dataset.code = 'ALL';
+              styleTile(allBtn);
+              allBtn.addEventListener('click', ()=>{
+                document.getElementById('artccTitle').textContent = 'United States NAS';
+                renderItems(window.__VATSIM_items);
+                Array.from(container.children).forEach(c=>c.style.opacity = '0.6');
+                allBtn.style.opacity = '1';
+              });
+              container.appendChild(allBtn);
+
+              for(const a of list){
+                const btn = document.createElement('button');
+                // show only the code on the tile
+                btn.textContent = a.code;
+                btn.dataset.code = a.code;
+                styleTile(btn);
+                btn.addEventListener('click', ()=>{
+                  // set title using config name + code
+                  document.getElementById('artccTitle').textContent = `${a.name} - ${a.code}`;
+                  // support filtering by primary code OR any aliases provided in the config
+                  const codes = [a.code].concat(Array.isArray(a.aliases) ? a.aliases : []);
+                  const matching = window.__VATSIM_items.filter(i=> codes.includes(i.artccId));
+                  renderItems(matching);
+                  // visually mark selected
+                  Array.from(container.children).forEach(c=>c.style.opacity = '0.6');
+                  btn.style.opacity = '1';
+                });
+                container.appendChild(btn);
+              }
+            }
+
+            function styleTile(btn){
+              btn.style.background = 'transparent';
+              btn.style.border = '1px solid rgba(255,255,255,0.06)';
+              btn.style.color = 'inherit';
+              btn.style.padding = '6px 10px';
+              btn.style.borderRadius = '8px';
+              btn.style.cursor = 'pointer';
+              btn.style.opacity = '0.8';
+            }
+
+            renderArtccTiles(tilesList);
+            // set default title to United States NAS and mark ALL
+            document.getElementById('artccTitle').textContent = 'United States NAS';
+            // set all opacity
+            const container = document.getElementById('artccTiles');
+            if(container && container.firstChild) Array.from(container.children).forEach(c=>c.style.opacity='0.6');
+            if(container && container.firstChild) container.firstChild.style.opacity = '1';
+
+            // sort alphabetically by callsign
+            window.__VATSIM_items.sort((a,b)=>a.callsign.localeCompare(b.callsign));
+            function renderItems(itemsToRender){
+              listEl.innerHTML = '';
+              const normal = [];
+              const observers = [];
+              for(const it of itemsToRender){
+                // resolve abbreviation: first check overrides by callsign (case-insensitive), then feed
+                let roleAbbr = '';
+                let roleSource = '';
+                try{
+                  const csKey = (it.callsign || '').toUpperCase();
+                  if(csKey && overrides[csKey]){
+                    roleAbbr = String(overrides[csKey]).toUpperCase();
+                    roleSource = 'override';
+                  } else {
+                    for(const ok of Object.keys(overrides)){
+                      if(!ok) continue;
+                      if(csKey.startsWith(ok) || csKey.endsWith(ok) || csKey.includes(ok)){
+                        roleAbbr = String(overrides[ok]).toUpperCase();
+                        roleSource = 'override';
+                        break;
+                      }
+                      const tokens = csKey.split(/[-_\/\s]/).map(t=>t.trim()).filter(Boolean);
+                      if(tokens.includes(ok)){
+                        roleAbbr = String(overrides[ok]).toUpperCase();
+                        roleSource = 'override';
+                        break;
+                      }
+                    }
+                  }
+                  if(!roleAbbr && it.requestedRating){
+                    roleAbbr = String(it.requestedRating).toUpperCase();
+                    roleSource = 'feed';
+                  }
+                }catch(e){ roleAbbr = ''; }
+
+                // push into separate arrays so we can render observers last
+                const roleNorm = (roleAbbr || '').toString().toUpperCase().trim();
+                if(roleNorm.startsWith('OBS')){
+                  observers.push({it, roleAbbr: roleNorm, roleSource});
+                } else {
+                  normal.push({it, roleAbbr: roleNorm, roleSource});
+                }
+              }
+
+              function buildLi(itemObj){
+                const {it, roleAbbr, roleSource} = itemObj;
+                const li = document.createElement('li');
+                li.className = 'item';
+                const left = document.createElement('div'); left.className = 'left';
+                  const radio = document.createElement('div'); radio.className = 'radio'; radio.textContent = it.radioName || '';
+                  const facility = document.createElement('div'); facility.className = 'facility'; facility.textContent = it.facilityName || '';
+                  const real = document.createElement('div'); real.className = 'realname'; real.textContent = it.realName || '';
+                  // create role badge
+                  const roleBadge = document.createElement('span'); roleBadge.className = 'role-badge'; roleBadge.textContent = roleAbbr || '';
+                  if(roleSource) roleBadge.title = roleSource === 'override' ? 'override' : 'feed';
+                const right = document.createElement('div'); right.className = 'right';
+                const freq = document.createElement('div'); freq.className = 'freq';
+                if(it.frequency){
+                  const mhz = (it.frequency / 1e6).toFixed(3);
+                  freq.textContent = `${mhz} MHz`;
+                } else {
+                  freq.textContent = '';
+                }
+                left.appendChild(radio);
+                if(facility.textContent) left.appendChild(facility);
+                if(real.textContent) left.appendChild(real);
+                right.appendChild(freq);
+                const csSmall = document.createElement('div'); csSmall.className = 'callsign-small'; csSmall.textContent = it.callsign || '';
+                if(csSmall.textContent) right.appendChild(csSmall);
+                if(roleBadge.textContent){
+                  if(real.textContent){
+                    if(!real.contains(roleBadge)) real.appendChild(roleBadge);
+                  } else {
+                    roleBadge.style.marginTop = '6px';
+                    right.appendChild(roleBadge);
+                  }
+                }
+                li.appendChild(left);
+                li.appendChild(right);
+                return li;
+              }
+
+              // render normal items first
+              for(const o of normal){
+                listEl.appendChild(buildLi(o));
+              }
+              // then render observers with muted italic styling
+              for(const o of observers){
+                const li = buildLi(o);
+                li.classList.add('observer');
+                listEl.appendChild(li);
+              }
+            }
+
+            // initial render = all items
+            renderItems(window.__VATSIM_items);
+            // hook filter change is handled by ARTCC tiles now
+            const artccTitle = document.getElementById('artccTitle');
+          }
+
+        }catch(err){
+          console.error(err);
+          // CORS and network errors are common when opening locally — show helpful hint
+          const isCors = /(CORS|cross-origin)/i.test(err.message) || err instanceof TypeError;
+          showMessage(isCors ? 'Could not fetch data (possible CORS or network issue). Try serving this page via a local HTTP server or use a proxy. See console for details.' : `Error: ${err.message}`, 'error');
+        } finally {
+          refreshBtn.disabled = false;
+        }
+      }
+
+      refreshBtn.addEventListener('click', ()=> load());
+      // initial load
+      load();
+    </script>
+    <!-- Overrides editor removed per user request -->
+  </body>
+</html>
