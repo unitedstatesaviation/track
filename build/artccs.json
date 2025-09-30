@@ -19,6 +19,7 @@
   { "code": "ZNY", "name": "New York ARTCC" },
   { "code": "ZOA", "name": "Oakland ARTCC" },
   { "code": "ZLC", "name": "Salt Lake City ARTCC" },
+  { "code": "ZSU", "name": "San Juan CERAP (VATCAR)" },
   { "code": "ZSE", "name": "Seattle ARTCC" },
   { "code": "ZDC", "name": "Washington ARTCC" }
 ]
