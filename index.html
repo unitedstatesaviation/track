@@ -70,9 +70,35 @@
         msgEl.appendChild(div);
       }
 
-      // Global variable to store callsigns and airports data
+      // Global variable to store callsigns, airports, and artccs data
       let callsignsData = {};
       let airportsData = {};
+      let artccsData = {};
+
+      async function loadArtccsData(){
+        try {
+          const response = await fetch('https://data.unitedstatesaviation.us/artccs.dat', {cache: 'no-store'});
+          if (!response.ok) return {};
+          const text = await response.text();
+          const lines = text.split('\n');
+          const data = {};
+          for (const line of lines) {
+            if (!line.trim() || line.startsWith('CODE|')) continue;
+            const parts = line.split('|');
+            if (parts.length >= 2) {
+              const code = parts[0].trim();
+              const name = parts[1].trim();
+              if (name) { // Only add if name is not empty
+                data[code] = name;
+              }
+            }
+          }
+          return data;
+        } catch (e) {
+          console.warn('Failed to load artccs data:', e);
+          return {};
+        }
+      }
 
       async function loadAirportsData(){
         try {
@@ -128,14 +154,16 @@
         showMessage('Loading…', 'loading');
         listEl.innerHTML = '';
         
-        // Load callsigns and airports data in parallel
+        // Load callsigns, airports, and artccs data in parallel
         if (Object.keys(callsignsData).length === 0) {
-          const [callsigns, airports] = await Promise.all([
+          const [callsigns, airports, artccs] = await Promise.all([
             loadCallsignsData(),
-            loadAirportsData()
+            loadAirportsData(),
+            loadArtccsData()
           ]);
           callsignsData = callsigns;
           airportsData = airports;
+          artccsData = artccs;
         }
         try{
           // Fetch from USAA API
@@ -195,7 +223,7 @@
             if(artccId && !window.__VATSIM_artccs[artccId]){
               window.__VATSIM_artccs[artccId] = {
                 code: artccId,
-                displayName: firCode ? `${firCode}` : `${artccId} ARTCC`
+                displayName: (artccsData[firCode] || (firCode ? `${firCode}` : `${artccId} ARTCC`))
               };
             }
           }
@@ -260,8 +288,14 @@
                   // set title using config name + code
                   document.getElementById('artccTitle').textContent = `${a.name} - ${a.code}`;
                   // support filtering by primary code OR any aliases provided in the config
+                  // also support filtering by sector prefix (e.g., KWEST matches KWEST-PHZH)
                   const codes = [a.code].concat(Array.isArray(a.aliases) ? a.aliases : []);
-                  const matching = window.__VATSIM_items.filter(i=> codes.includes(i.artccId));
+                  const matching = window.__VATSIM_items.filter(i=> {
+                    // Exact match
+                    if (codes.includes(i.artccId)) return true;
+                    // Prefix match (e.g., KWEST matches KWEST-PHZH)
+                    return codes.some(code => i.artccId && i.artccId.startsWith(code + '-'));
+                  });
                   renderItems(matching);
                   // visually mark selected
                   Array.from(container.children).forEach(c=>c.style.opacity = '0.6');
@@ -348,7 +382,13 @@
                   } else if (it.airportCode) {
                     facility.textContent = it.airportCode;
                   }
-                  const firDiv = document.createElement('div'); firDiv.className = 'facility'; firDiv.textContent = it.firCode || '';
+                  const firDiv = document.createElement('div'); firDiv.className = 'facility';
+                  // Format as 'FIR Name (CODE)' if FIR name is available
+                  if (it.firCode && artccsData[it.firCode]) {
+                    firDiv.textContent = `${artccsData[it.firCode]} (${it.firCode})`;
+                  } else if (it.firCode) {
+                    firDiv.textContent = it.firCode;
+                  }
                   const cidDiv = document.createElement('div'); cidDiv.className = 'facility'; cidDiv.textContent = it.cid || '';
                   const real = document.createElement('div'); real.className = 'realname'; real.textContent = it.realName || '';
                    // Create online time badge
