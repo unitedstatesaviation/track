@@ -70,10 +70,36 @@
         msgEl.appendChild(div);
       }
 
-      // Global variable to store callsigns, airports, and artccs data
+      // Global variable to store callsigns, airports, artccs, and users data
       let callsignsData = {};
       let airportsData = {};
       let artccsData = {};
+      let usersData = {};
+
+      async function loadUsersData(){
+        try {
+          const response = await fetch('https://data.unitedstatesaviation.us/users.dat', {cache: 'no-store'});
+          if (!response.ok) return {};
+          const text = await response.text();
+          const lines = text.split('\n');
+          const data = {};
+          for (const line of lines) {
+            if (!line.trim() || line.startsWith('CID|')) continue;
+            const parts = line.split('|');
+            if (parts.length >= 2) {
+              const cid = parts[0].trim();
+              const displayName = parts[1].trim();
+              if (displayName) {
+                data[cid] = displayName;
+              }
+            }
+          }
+          return data;
+        } catch (e) {
+          console.warn('Failed to load users data:', e);
+          return {};
+        }
+      }
 
       async function loadArtccsData(){
         try {
@@ -154,16 +180,18 @@
         showMessage('Loading…', 'loading');
         listEl.innerHTML = '';
         
-        // Load callsigns, airports, and artccs data in parallel
+        // Load callsigns, airports, artccs, and users data in parallel
         if (Object.keys(callsignsData).length === 0) {
-          const [callsigns, airports, artccs] = await Promise.all([
+          const [callsigns, airports, artccs, users] = await Promise.all([
             loadCallsignsData(),
             loadAirportsData(),
-            loadArtccsData()
+            loadArtccsData(),
+            loadUsersData()
           ]);
           callsignsData = callsigns;
           airportsData = airports;
           artccsData = artccs;
+          usersData = users;
         }
         try{
           // Fetch from USAA API
@@ -389,7 +417,13 @@
                   } else if (it.firCode) {
                     firDiv.textContent = it.firCode;
                   }
-                  const cidDiv = document.createElement('div'); cidDiv.className = 'facility'; cidDiv.textContent = it.cid || '';
+                  const cidDiv = document.createElement('div'); cidDiv.className = 'facility';
+                  // Use display name from users.dat if available, otherwise show CID
+                  if (it.cid && usersData[it.cid]) {
+                    cidDiv.textContent = usersData[it.cid];
+                  } else if (it.cid) {
+                    cidDiv.textContent = it.cid;
+                  }
                   const real = document.createElement('div'); real.className = 'realname'; real.textContent = it.realName || '';
                    // Create online time badge
                   const onlineBadge = document.createElement('span'); onlineBadge.className = 'role-badge';
