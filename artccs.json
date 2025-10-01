@@ -1,3 +1,5 @@
 [
+  { "code": "PHZH", "name": "Honolulu Control Facility"},
+  { "code": "KEAST", "name": "US East Control"},
   { "code": "KWEST", "name": "US West Control"}
 ]

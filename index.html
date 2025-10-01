@@ -22,6 +22,9 @@
     .left .realname{font-size:12px;color:#9fb0d6}
   .role-badge{display:inline-block;margin-left:8px;padding:2px 6px;background:rgba(159,195,255,0.12);border-radius:6px;color:#9fc3ff;font-weight:700;font-size:11px}
   li.item.observer{opacity:0.55;font-style:italic}
+  li.item.event{background:linear-gradient(180deg,rgba(255,215,0,0.15),rgba(255,165,0,0.05));border:2px solid rgba(255,215,0,0.3);margin-bottom:12px;grid-column:1 / -1}
+  li.item.event .radio{color:#ffd700;font-size:18px}
+  li.item.event .freq{color:#ffd700;font-size:20px}
   .right{width:140px;flex:0 0 140px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px}
   .freq{font-size:18px;font-weight:700;color:#9fc3ff}
   .callsign-small{font-size:12px;color:#9fb0d6}
@@ -70,11 +73,43 @@
         msgEl.appendChild(div);
       }
 
-      // Global variable to store callsigns, airports, artccs, and users data
+      // Global variable to store callsigns, airports, artccs, users, and events data
       let callsignsData = {};
       let airportsData = {};
       let artccsData = {};
       let usersData = {};
+      let eventsData = {};
+
+      async function loadEventsData(){
+        try {
+          const response = await fetch('https://data.unitedstatesaviation.us/events.dat', {cache: 'no-store'});
+          if (!response.ok) return {};
+          const text = await response.text();
+          const lines = text.split('\n');
+          const data = {};
+          for (const line of lines) {
+            if (!line.trim() || line.startsWith('EVENTID|')) continue;
+            const parts = line.split('|');
+            if (parts.length >= 4) {
+              const eventId = parts[0].trim();
+              const eventName = parts[1].trim();
+              const featuredFields = parts[2].trim();
+              const eventDescription = parts[3].trim();
+              if (eventName) {
+                data[eventId] = {
+                  name: eventName,
+                  description: eventDescription,
+                  featuredFields: featuredFields
+                };
+              }
+            }
+          }
+          return data;
+        } catch (e) {
+          console.warn('Failed to load events data:', e);
+          return {};
+        }
+      }
 
       async function loadUsersData(){
         try {
@@ -180,18 +215,20 @@
         showMessage('Loading…', 'loading');
         listEl.innerHTML = '';
         
-        // Load callsigns, airports, artccs, and users data in parallel
+        // Load callsigns, airports, artccs, users, and events data in parallel
         if (Object.keys(callsignsData).length === 0) {
-          const [callsigns, airports, artccs, users] = await Promise.all([
+          const [callsigns, airports, artccs, users, events] = await Promise.all([
             loadCallsignsData(),
             loadAirportsData(),
             loadArtccsData(),
-            loadUsersData()
+            loadUsersData(),
+            loadEventsData()
           ]);
           callsignsData = callsigns;
           airportsData = airports;
           artccsData = artccs;
           usersData = users;
+          eventsData = events;
         }
         try{
           // Fetch from USAA API
@@ -222,7 +259,24 @@
             const frequencyData = enhancedData.frequency || '';
             const radioNameFromFile = enhancedData.radioName || '';
             
-            const radioName = radioNameFromFile || callsign; // Use radio name from file, fallback to callsign
+            // Detect event positions (callsigns ending with _EVEN)
+            const isEvent = callsign.endsWith('_EVEN');
+            
+            // For event positions, use event name from events.dat if available
+            let finalRadioName = radioNameFromFile || callsign;
+            let eventDescription = '';
+            let featuredFields = '';
+            if (isEvent) {
+              // Extract event ID from callsign (everything before _EVEN)
+              const eventId = callsign.replace('_EVEN', '');
+              if (eventsData[eventId]) {
+                finalRadioName = eventsData[eventId].name || eventsData[eventId];
+                eventDescription = eventsData[eventId].description || '';
+                featuredFields = eventsData[eventId].featuredFields || '';
+              }
+            }
+            
+            const radioName = finalRadioName;
             const facilityName = airportCode || '';
             const frequency = frequencyData ? String(frequencyData) : null;
             const realName = '';
@@ -245,6 +299,9 @@
               firCode,
               cid: c.cid || '',
               onlineTime: c.onlineTime || '',
+              isEvent,
+              eventDescription,
+              featuredFields,
               vatsimData: {}
             });
             
@@ -355,6 +412,7 @@
             window.__VATSIM_items.sort((a,b)=>a.callsign.localeCompare(b.callsign));
             function renderItems(itemsToRender){
               listEl.innerHTML = '';
+              const events = [];
               const normal = [];
               const observers = [];
               for(const it of itemsToRender){
@@ -388,9 +446,11 @@
                   }
                 }catch(e){ roleAbbr = ''; }
 
-                // push into separate arrays so we can render observers last
+                // Separate into events, normal, and observers
                 const roleNorm = (roleAbbr || '').toString().toUpperCase().trim();
-                if(it.isObserver){
+                if(it.isEvent){
+                  events.push({it, roleAbbr: roleNorm, roleSource});
+                } else if(it.isObserver){
                   observers.push({it, roleAbbr: roleNorm, roleSource});
                 } else {
                   normal.push({it, roleAbbr: roleNorm, roleSource});
@@ -418,6 +478,15 @@
                     firDiv.textContent = it.firCode;
                   }
                   const cidDiv = document.createElement('div'); cidDiv.className = 'facility';
+                  
+                  // Add event description above CID for event positions
+                  const eventDescDiv = document.createElement('div'); eventDescDiv.className = 'facility';
+                  if (it.isEvent && it.eventDescription) {
+                    eventDescDiv.textContent = it.eventDescription;
+                    eventDescDiv.style.fontStyle = 'italic';
+                    eventDescDiv.style.color = '#ffd700';
+                  }
+                  
                   // Use display name from users.dat if available, otherwise show CID
                   if (it.cid && usersData[it.cid]) {
                     cidDiv.textContent = usersData[it.cid];
@@ -494,14 +563,19 @@
                   }
                 const right = document.createElement('div'); right.className = 'right';
                 const freq = document.createElement('div'); freq.className = 'freq';
-                if(it.frequency){
-                  freq.textContent = `${it.frequency} MHz`;
+                if(it.isEvent && it.featuredFields){
+                  // For events, show featured fields instead of frequency
+                  freq.textContent = it.featuredFields;
+                } else if(it.frequency){
+                  // For regular positions, show frequency without MHz
+                  freq.textContent = it.frequency;
                 } else {
                   freq.textContent = '';
                 }
                 left.appendChild(radio);
                 if(facility.textContent) left.appendChild(facility);
                 if(firDiv.textContent) left.appendChild(firDiv);
+                if(eventDescDiv.textContent) left.appendChild(eventDescDiv);
                 if(cidDiv.textContent) left.appendChild(cidDiv);
                 if(real.textContent) left.appendChild(real);
                 right.appendChild(freq);
@@ -520,7 +594,14 @@
                 return li;
               }
 
-              // render normal items first
+              // render events first (pinned to top)
+              for(const o of events){
+                const li = buildLi(o);
+                li.classList.add('event');
+                listEl.appendChild(li);
+              }
+              
+              // render normal items
               for(const o of normal){
                 listEl.appendChild(buildLi(o));
               }
