@@ -1,7 +1,7 @@
 [
-  { "code": "KZSE", "name": "Seattle ARTCC"},
   { "code": "PAZA", "name": "Anchorage ARTCC"},
   { "code": "PHZH", "name": "Honolulu Control Facility"},
+  { "code": "KZSE", "name": "Seattle ARTCC"},
   { "code": "KEAST", "name": "US East Control"},
   { "code": "KWEST", "name": "US West Control"}
 ]
