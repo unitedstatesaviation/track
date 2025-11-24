@@ -109,28 +109,19 @@
 
       async function loadEventsData(){
         try {
-          const response = await fetch('https://data.unitedstatesaviation.us/events.dat', {cache: 'no-store'});
+          const response = await fetch('https://usaa-data-api.sebpartof2.workers.dev/api/events', {cache: 'no-store'});
           if (!response.ok) return {};
-          const text = await response.text();
-          const lines = text.split('\n');
+          const events = await response.json();
           const data = {};
-          for (const line of lines) {
-            if (!line.trim() || line.startsWith('EVENTID|')) continue;
-            const parts = line.split('|');
-            if (parts.length >= 4) {
-              const eventId = parts[0].trim();
-              const eventName = parts[1].trim();
-              const featuredFields = parts[2].trim();
-              const eventDescription = parts[3].trim();
-              const eventPhoto = parts.length >= 5 ? parts[4].trim() : '';
-              if (eventName) {
-                data[eventId] = {
-                  name: eventName,
-                  description: eventDescription,
-                  featuredFields: featuredFields,
-                  photo: eventPhoto
-                };
-              }
+          for (const event of events) {
+            const eventId = event.eventId || event.id;
+            if (eventId && event.eventName) {
+              data[eventId] = {
+                name: event.eventName,
+                description: event.eventDescription || '',
+                featuredFields: event.featuredFields || '',
+                photo: event.eventPhoto || ''
+              };
             }
           }
           return data;
@@ -142,20 +133,13 @@
 
       async function loadUsersData(){
         try {
-          const response = await fetch('https://data.unitedstatesaviation.us/users.dat', {cache: 'no-store'});
+          const response = await fetch('https://usaa-data-api.sebpartof2.workers.dev/api/users', {cache: 'no-store'});
           if (!response.ok) return {};
-          const text = await response.text();
-          const lines = text.split('\n');
+          const users = await response.json();
           const data = {};
-          for (const line of lines) {
-            if (!line.trim() || line.startsWith('CID|')) continue;
-            const parts = line.split('|');
-            if (parts.length >= 2) {
-              const cid = parts[0].trim();
-              const displayName = parts[1].trim();
-              if (displayName) {
-                data[cid] = displayName;
-              }
+          for (const user of users) {
+            if (user.cid && user.displayName) {
+              data[user.cid] = user.displayName;
             }
           }
           return data;
@@ -167,20 +151,13 @@
 
       async function loadArtccsData(){
         try {
-          const response = await fetch('https://data.unitedstatesaviation.us/artccs.dat', {cache: 'no-store'});
+          const response = await fetch('https://usaa-data-api.sebpartof2.workers.dev/api/artccs', {cache: 'no-store'});
           if (!response.ok) return {};
-          const text = await response.text();
-          const lines = text.split('\n');
+          const artccs = await response.json();
           const data = {};
-          for (const line of lines) {
-            if (!line.trim() || line.startsWith('CODE|')) continue;
-            const parts = line.split('|');
-            if (parts.length >= 2) {
-              const code = parts[0].trim();
-              const name = parts[1].trim();
-              if (name) { // Only add if name is not empty
-                data[code] = name;
-              }
+          for (const artcc of artccs) {
+            if (artcc.code && artcc.name) {
+              data[artcc.code] = artcc.name;
             }
           }
           return data;
@@ -192,18 +169,13 @@
 
       async function loadAirportsData(){
         try {
-          const response = await fetch('https://data.unitedstatesaviation.us/airports.dat', {cache: 'no-store'});
+          const response = await fetch('https://usaa-data-api.sebpartof2.workers.dev/api/airports', {cache: 'no-store'});
           if (!response.ok) return {};
-          const text = await response.text();
-          const lines = text.split('\n');
+          const airports = await response.json();
           const data = {};
-          for (const line of lines) {
-            if (!line.trim() || line.startsWith('FACILITYCODE|')) continue;
-            const parts = line.split('|');
-            if (parts.length >= 2) {
-              const code = parts[0].trim();
-              const name = parts[1].trim();
-              data[code] = name;
+          for (const airport of airports) {
+            if (airport.facilityCode && airport.facilityName) {
+              data[airport.facilityCode] = airport.facilityName;
             }
           }
           return data;
@@ -215,21 +187,18 @@
 
       async function loadCallsignsData(){
         try {
-          const response = await fetch('https://data.unitedstatesaviation.us/callsigns.dat', {cache: 'no-store'});
+          const response = await fetch('https://usaa-data-api.sebpartof2.workers.dev/api/callsigns', {cache: 'no-store'});
           if (!response.ok) return {};
-          const text = await response.text();
-          const lines = text.split('\n');
+          const callsigns = await response.json();
           const data = {};
-          for (const line of lines) {
-            if (!line.trim() || line.startsWith('CALLSIGN|')) continue;
-            const parts = line.split('|');
-            if (parts.length >= 3) {
-              const callsign = parts[0].trim();
-              const airport = parts[1].trim();
-              const fir = parts[2].trim();
-              const frequency = parts.length >= 4 ? parts[3].trim() : '';
-              const radioName = parts.length >= 5 ? parts[4].trim() : '';
-              data[callsign] = { airport, fir, frequency, radioName };
+          for (const cs of callsigns) {
+            if (cs.callsign) {
+              data[cs.callsign] = {
+                airport: cs.airportFacility || '',
+                fir: cs.artcc || '',
+                frequency: cs.frequency || '',
+                radioName: cs.radioName || ''
+              };
             }
           }
           return data;
