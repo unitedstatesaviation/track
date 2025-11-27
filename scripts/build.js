@@ -9,7 +9,13 @@ const outDir = path.join(root, 'out');
 const filesToCopy = [
   'index.html',
   'artccs.json',
-  'overrides.json'
+  'overrides.json',
+  'USAA.white.svg',
+  'USAA.black.svg',
+  'USAA.shield.svg',
+  'USAA.white.png',
+  'USAA.black.png',
+  'USAA.shield.png'
 ];
 
 function cleanDir(dir) {
