@@ -131,7 +131,8 @@
                 name: event.eventName,
                 description: event.eventDescription || '',
                 featuredFields: event.featuredFields || '',
-                photo: event.eventPhoto || ''
+                photo: event.eventPhoto || '',
+                artcc: event.artcc || ''
               };
             }
           }
@@ -276,6 +277,7 @@
             let eventDescription = '';
             let featuredFields = '';
             let eventPhoto = '';
+            let eventArtcc = '';
             if (isEvent) {
               // Extract event ID from callsign (everything before _EVEN)
               const eventId = callsign.replace('_EVEN', '');
@@ -284,18 +286,19 @@
                 eventDescription = eventsData[eventId].description || '';
                 featuredFields = eventsData[eventId].featuredFields || '';
                 eventPhoto = eventsData[eventId].photo || '';
+                eventArtcc = eventsData[eventId].artcc || '';
               }
             }
-            
+
             const radioName = finalRadioName;
             const facilityName = airportCode || '';
             const frequency = frequencyData ? String(frequencyData) : null;
             const realName = '';
             const requestedRating = '';
             const isObserver = false;
-            
-            // Use FIR code as artccId, fallback to callsign prefix
-            const artccId = firCode || callsign.split('_')[0] || '';
+
+            // Use event ARTCC if it's an event, otherwise use FIR code, fallback to callsign prefix
+            const artccId = (isEvent && eventArtcc) ? eventArtcc : (firCode || callsign.split('_')[0] || '');
             
             window.__VATSIM_items.push({
               callsign, 
@@ -329,7 +332,6 @@
             showMessage('No controllers online.', 'muted');
           } else {
             showMessage('', '');
-            const artccEntries = Object.values(window.__VATSIM_artccs).sort((a,b)=>a.code.localeCompare(b.code));
             // try to load artccs.json (editable config)
             let cfgList = null;
             // Load overrides (optional) - mapping of callsign -> abbreviation
@@ -358,7 +360,22 @@
               }
             }catch(e){ /* ignore */ }
 
-            const tilesList = cfgList || artccEntries.map(a=>({code:a.code,name:a.displayName, aliases: []}));
+            // Use artccs.json if available, otherwise use known ARTCCs from API (artccsData)
+            // Filter to only show tiles for ARTCCs that have controllers online
+            const knownArtccs = Object.keys(artccsData).map(code => ({
+              code: code,
+              name: artccsData[code],
+              aliases: []
+            })).sort((a,b) => a.code.localeCompare(b.code));
+
+            // Only show ARTCCs that have online controllers
+            const artccsWithControllers = knownArtccs.filter(artcc =>
+              window.__VATSIM_items.some(item =>
+                item.artccId === artcc.code || item.artccId?.startsWith(artcc.code + '-')
+              )
+            );
+
+            const tilesList = cfgList || artccsWithControllers;
             function renderArtccTiles(list){
               const container = document.getElementById('artccTiles');
               container.innerHTML = '';
